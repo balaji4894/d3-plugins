@@ -4,7 +4,8 @@ d3.sankey = function() {
       nodePadding = 8,
       size = [1, 1],
       nodes = [],
-      links = [];
+      links = [],
+      cyclicLinks = [];
 
   sankey.nodeWidth = function(_) {
     if (!arguments.length) return nodeWidth;
@@ -54,13 +55,32 @@ d3.sankey = function() {
     var curvature = .5;
 
     function link(d) {
-      var x0 = d.source.x + d.source.dx,
-          x1 = d.target.x,
-          xi = d3.interpolateNumber(x0, x1),
-          x2 = xi(curvature),
-          x3 = xi(1 - curvature),
-          y0 = d.source.y + d.sy + d.dy / 2,
-          y1 = d.target.y + d.ty + d.dy / 2;
+      var x0 = 0,
+          x1 = 0,
+          xi = 0,
+          x2 = 0,
+          x3 = 0,
+          y0 = 0,
+          y1 = 0;
+
+          if(!d.cyclic){
+            x0 = d.source.x + d.source.dx;
+            x1 = d.target.x;
+            xi = d3.interpolateNumber(x0, x1),
+            x2 = xi(curvature),
+            x3 = xi(1 - curvature),
+            y1 = d.target.y + d.ty + d.dy / 2;
+            y0 = d.source.y + d.sy + d.dy / 2;
+          }
+          else{
+            x0 = d.source.x;
+            x1 = d.target.x + d.target.dx;
+            xi = d3.interpolateNumber(x0, x1),
+            x2 = xi(curvature),
+            x3 = xi(1 - curvature),
+            y1 = d.target.y + d.csy + d.dy / 2
+            y0 = d.source.y + d.cty + d.dy / 2 
+          }
       return "M" + x0 + "," + y0
            + "C" + x2 + "," + y0
            + " " + x3 + "," + y1
@@ -79,27 +99,64 @@ d3.sankey = function() {
   // Populate the sourceLinks and targetLinks for each node.
   // Also, if the source and target are not objects, assume they are indices.
   function computeNodeLinks() {
-    nodes.forEach(function(node) {
+    nodes.forEach(function(node,i) {
       node.sourceLinks = [];
       node.targetLinks = [];
+      node.cycleLinks = [];
+      node.id = i;
     });
-    links.forEach(function(link) {
+    links.forEach(function(link,i) {
       var source = link.source,
           target = link.target;
       if (typeof source === "number") source = link.source = nodes[link.source];
       if (typeof target === "number") target = link.target = nodes[link.target];
-      source.sourceLinks.push(link);
-      target.targetLinks.push(link);
+      var cycleFlag = false;
+      source.targetLinks.forEach(function(l){          
+          if(l.source.id === target.id){
+            console.log("Cyclic");
+            console.log(source.id + '-->'+ target.id);
+            target.cycleLinks.push(link);
+            cyclicLinks.push(link);
+            cycleFlag = true;
+            link.cyclic = true;
+          }
+      });
+      if(!cycleFlag){
+        link.cyclic=false;
+        source.sourceLinks.push(link);
+        target.targetLinks.push(link);  
+      }
+      
     });
   }
 
   // Compute the value (size) of each node by summing the associated links.
   function computeNodeValues() {
+
+    cyclicLinks.forEach(function(link){
+      if(link.source.cycleValue){
+        link.source.cycleValue += link.value;
+      }
+      else{
+        link.source.cycleValue = link.value;
+      }
+
+      if(link.target.cycleValue){
+        link.target.cycleValue += link.value;
+      }
+      else{
+        link.target.cycleValue = link.value;
+      }
+    });
+
     nodes.forEach(function(node) {
       node.value = Math.max(
         d3.sum(node.sourceLinks, value),
         d3.sum(node.targetLinks, value)
       );
+      if(node.cycleValue){
+        //node.value+=node.cycleValue  
+      }
     });
   }
 
@@ -128,7 +185,7 @@ d3.sankey = function() {
     }
 
     //
-    moveSinksRight(x);
+    //moveSinksRight(x);
     scaleNodeBreadths((size[0] - nodeWidth) / (x - 1));
   }
 
@@ -179,7 +236,7 @@ d3.sankey = function() {
       nodesByBreadth.forEach(function(nodes) {
         nodes.forEach(function(node, i) {
           node.y = i;
-          node.dy = node.value * ky;
+          node.dy = node.value * ky;  
         });
       });
 
@@ -260,6 +317,7 @@ d3.sankey = function() {
     nodes.forEach(function(node) {
       node.sourceLinks.sort(ascendingTargetDepth);
       node.targetLinks.sort(ascendingSourceDepth);
+      node.cycleLinks.sort(ascendingCycleDepth);
     });
     nodes.forEach(function(node) {
       var sy = 0, ty = 0;
@@ -271,6 +329,14 @@ d3.sankey = function() {
         link.ty = ty;
         ty += link.dy;
       });
+      
+      var cty=sy, csy=ty;
+      node.cycleLinks.forEach(function(link) {
+        link.cty = cty;
+        link.csy = csy
+        cty += link.dy;
+        csy += link.dy;
+      });
     });
 
     function ascendingSourceDepth(a, b) {
@@ -278,6 +344,10 @@ d3.sankey = function() {
     }
 
     function ascendingTargetDepth(a, b) {
+      return a.target.y - b.target.y;
+    }
+
+    function ascendingCycleDepth(a, b) {
       return a.target.y - b.target.y;
     }
   }
