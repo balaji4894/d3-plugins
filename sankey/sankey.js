@@ -4,7 +4,8 @@ d3.sankey = function() {
       nodePadding = 8,
       size = [1, 1],
       nodes = [],
-      links = [];
+      links = [],
+      cyclicLinks = [];
 
   sankey.nodeWidth = function(_) {
     if (!arguments.length) return nodeWidth;
@@ -54,13 +55,33 @@ d3.sankey = function() {
     var curvature = .5;
 
     function link(d) {
-      var x0 = d.source.x + d.source.dx,
-          x1 = d.target.x,
-          xi = d3.interpolateNumber(x0, x1),
-          x2 = xi(curvature),
-          x3 = xi(1 - curvature),
-          y0 = d.source.y + d.sy + d.dy / 2,
-          y1 = d.target.y + d.ty + d.dy / 2;
+      var x0 = 0
+        x1 = 0
+        xi = 0
+        x2 = 0
+        x3 = 0
+        y0 = 0
+        y1 = 0;
+
+      if(!d.isCyclic){
+        x0 = d.source.x + d.source.dx,
+        x1 = d.target.x,
+        xi = d3.interpolateNumber(x0, x1),
+        x2 = xi(curvature),
+        x3 = xi(1 - curvature),
+        y0 = d.source.y + d.sy + d.dy / 2,
+        y1 = d.target.y + d.ty + d.dy / 2;
+      }
+      else {
+        x0 = d.target.x + d.target.dx,
+        x1 = d.source.x,
+        xi = d3.interpolateNumber(x0, x1),
+        x2 = xi(curvature),
+        x3 = xi(1 - curvature),
+        y0 = d.target.y + d.sy + d.dy / 2,
+        y1 = d.source.y + d.ty + d.dy / 2;
+      }    
+      
       return "M" + x0 + "," + y0
            + "C" + x2 + "," + y0
            + " " + x3 + "," + y1
@@ -84,21 +105,27 @@ d3.sankey = function() {
       node.targetLinks = [];
     });
     links.forEach(function(link) {
-      var source = link.source,
-          target = link.target;
-      if (typeof source === "number") source = link.source = nodes[link.source];
-      if (typeof target === "number") target = link.target = nodes[link.target];
-      source.sourceLinks.push(link);
-      target.targetLinks.push(link);
+      if(!isLinkCyclic(link)){
+        link.isCyclic = false;
+        var source = link.source,
+            target = link.target;
+        if (typeof source === "number") source = link.source = nodes[link.source];
+        if (typeof target === "number") target = link.target = nodes[link.target];
+        source.sourceLinks.push(link);
+        target.targetLinks.push(link);  
+      }
+      
     });
+
+    computeCyclicNodeLinks();
   }
 
   // Compute the value (size) of each node by summing the associated links.
   function computeNodeValues() {
     nodes.forEach(function(node) {
       node.value = Math.max(
-        d3.sum(node.sourceLinks, value),
-        d3.sum(node.targetLinks, value)
+        (d3.sum(node.sourceLinks, value)+d3.sum(node.cyclicTargetLinks, value)),
+        (d3.sum(node.targetLinks, value)+d3.sum(node.cyclicSourceLinks, value))
       );
     });
   }
@@ -260,6 +287,8 @@ d3.sankey = function() {
     nodes.forEach(function(node) {
       node.sourceLinks.sort(ascendingTargetDepth);
       node.targetLinks.sort(ascendingSourceDepth);
+      node.cyclicSourceLinks.sort(ascendingCyclicSourceDepth);
+      node.cyclicTargetLinks.sort(ascendingCyclicTargetDepth);
     });
     nodes.forEach(function(node) {
       var sy = 0, ty = 0;
@@ -267,7 +296,15 @@ d3.sankey = function() {
         link.sy = sy;
         sy += link.dy;
       });
+      node.cyclicTargetLinks.forEach(function(link) {
+        link.sy = sy;
+        sy += link.dy;
+      });
       node.targetLinks.forEach(function(link) {
+        link.ty = ty;
+        ty += link.dy;
+      });
+      node.cyclicSourceLinks.forEach(function(link) {
         link.ty = ty;
         ty += link.dy;
       });
@@ -280,6 +317,46 @@ d3.sankey = function() {
     function ascendingTargetDepth(a, b) {
       return a.target.y - b.target.y;
     }
+
+    function ascendingCyclicSourceDepth(a, b) {
+      return a.target.y - b.target.y;
+    }
+
+    function ascendingCyclicTargetDepth(a, b) {
+      return a.source.y - b.source.y;
+    }
+  }
+
+  function computeCyclicNodeLinks(){
+    nodes.forEach(function(node) {
+      node.cyclicSourceLinks = [];
+      node.cyclicTargetLinks = [];
+    });
+    cyclicLinks.forEach(function(link) {
+      link.isCyclic = true;
+      var source = link.source,
+          target = link.target;
+      if (typeof source === "number") source = link.source = nodes[link.source];
+      if (typeof target === "number") target = link.target = nodes[link.target];
+      source.cyclicSourceLinks.push(link);
+      target.cyclicTargetLinks.push(link);
+    });
+  }
+
+  function isLinkCyclic(link){
+     var source = link.source,
+         target = link.target;
+     if (typeof source === "number") source = link.source = nodes[link.source];
+     if (typeof target === "number") target = link.target = nodes[link.target];
+     var cyclicLinkFlag = false;
+     target.sourceLinks.forEach(function(l,i){
+        if(l.target === source && l.source === target){
+          cyclicLinkFlag = true;
+          cyclicLinks.push(link);
+        }
+     });
+
+     return cyclicLinkFlag;
   }
 
   function center(node) {
