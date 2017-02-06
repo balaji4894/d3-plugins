@@ -123,10 +123,28 @@ d3.sankey = function() {
   // Compute the value (size) of each node by summing the associated links.
   function computeNodeValues() {
     nodes.forEach(function(node) {
+      /*node.value = Math.max(
+        (d3.sum(node.sourceLinks, value)+d3.sum(node.cyclicTargetLinks, value)),
+        (d3.sum(node.targetLinks, value)+d3.sum(node.cyclicSourceLinks, value))
+      );*/
+      
       node.value = Math.max(
+        (d3.sum(node.sourceLinks, value)-d3.sum(node.cyclicTargetLinks, value)),
+        (d3.sum(node.targetLinks, value)-d3.sum(node.cyclicSourceLinks, value))
+      );
+      
+      node.absoluteValue = Math.max(
         (d3.sum(node.sourceLinks, value)+d3.sum(node.cyclicTargetLinks, value)),
         (d3.sum(node.targetLinks, value)+d3.sum(node.cyclicSourceLinks, value))
       );
+      
+      node.relativeValue = Math.max(
+        Math.abs((d3.sum(node.sourceLinks, value)-d3.sum(node.cyclicTargetLinks, value))),
+        Math.abs((d3.sum(node.targetLinks, value)-d3.sum(node.cyclicSourceLinks, value)))
+      );
+      
+      node.compressionRatio = node.relativeValue/node.absoluteValue;
+      
     });
   }
 
@@ -155,7 +173,7 @@ d3.sankey = function() {
     }
 
     //
-    moveSinksRight(x);
+    //moveSinksRight(x);
     scaleNodeBreadths((size[0] - nodeWidth) / (x - 1));
   }
 
@@ -202,7 +220,9 @@ d3.sankey = function() {
       var ky = d3.min(nodesByBreadth, function(nodes) {
         return (size[1] - (nodes.length - 1) * nodePadding) / d3.sum(nodes, value);
       });
-
+      
+      var kdy = d3.min(nodes, function(d){return d.compressionRatio});
+            
       nodesByBreadth.forEach(function(nodes) {
         nodes.forEach(function(node, i) {
           node.y = i;
@@ -211,7 +231,7 @@ d3.sankey = function() {
       });
 
       links.forEach(function(link) {
-        link.dy = link.value * ky;
+        link.dy = link.value * ky * kdy;
       });
     }
 
