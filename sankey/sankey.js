@@ -81,7 +81,6 @@ d3.sankey = function() {
         y0 = d.target.y + d.sy + d.dy / 2,
         y1 = d.source.y + d.ty + d.dy / 2;
       }    
-      
       return "M" + x0 + "," + y0
            + "C" + x2 + "," + y0
            + " " + x3 + "," + y1
@@ -100,10 +99,13 @@ d3.sankey = function() {
   // Populate the sourceLinks and targetLinks for each node.
   // Also, if the source and target are not objects, assume they are indices.
   function computeNodeLinks() {
-    nodes.forEach(function(node) {
+    nodes.forEach(function(node,i) {
       node.sourceLinks = [];
       node.targetLinks = [];
+      node.cycleLinks = [];
+      node.id = i;
     });
+
     links.forEach(function(link) {
       if(!isLinkCyclic(link)){
         link.isCyclic = false;
@@ -111,6 +113,7 @@ d3.sankey = function() {
             target = link.target;
         if (typeof source === "number") source = link.source = nodes[link.source];
         if (typeof target === "number") target = link.target = nodes[link.target];
+
         source.sourceLinks.push(link);
         target.targetLinks.push(link);  
       }
@@ -122,6 +125,23 @@ d3.sankey = function() {
 
   // Compute the value (size) of each node by summing the associated links.
   function computeNodeValues() {
+
+    cyclicLinks.forEach(function(link){
+      if(link.source.cycleValue){
+        link.source.cycleValue += link.value;
+      }
+      else{
+        link.source.cycleValue = link.value;
+      }
+
+      if(link.target.cycleValue){
+        link.target.cycleValue += link.value;
+      }
+      else{
+        link.target.cycleValue = link.value;
+      }
+    });
+
     nodes.forEach(function(node) {
       /*node.value = Math.max(
         (d3.sum(node.sourceLinks, value)+d3.sum(node.cyclicTargetLinks, value)),
@@ -144,7 +164,7 @@ d3.sankey = function() {
       );
       
       node.compressionRatio = node.relativeValue/node.absoluteValue;
-      
+
     });
   }
 
@@ -226,7 +246,7 @@ d3.sankey = function() {
       nodesByBreadth.forEach(function(nodes) {
         nodes.forEach(function(node, i) {
           node.y = i;
-          node.dy = node.value * ky;
+          node.dy = node.value * ky;  
         });
       });
 
@@ -310,11 +330,15 @@ d3.sankey = function() {
       node.cyclicSourceLinks.sort(ascendingCyclicSourceDepth);
       node.cyclicTargetLinks.sort(ascendingCyclicTargetDepth);
     });
+    
+     
     nodes.forEach(function(node) {
       var sy = 0, ty = 0;
       node.sourceLinks.forEach(function(link) {
         link.sy = sy;
         sy += link.dy;
+        node.sy = sy;
+        
       });
       node.cyclicTargetLinks.forEach(function(link) {
         link.sy = sy;
@@ -323,11 +347,22 @@ d3.sankey = function() {
       node.targetLinks.forEach(function(link) {
         link.ty = ty;
         ty += link.dy;
+        node.ty = ty;
+        
       });
       node.cyclicSourceLinks.forEach(function(link) {
         link.ty = ty;
         ty += link.dy;
       });
+    });
+    nodes.forEach(function(node){
+      var cty = 0,csy=0;
+        node.cycleLinks.forEach(function(link) {
+          link.cty = cty+link.target.sy;
+          link.csy = csy+link.source.ty;
+          cty += link.target.sy+link.dy;
+          csy += link.source.ty+link.dy;
+        });
     });
 
     function ascendingSourceDepth(a, b) {
